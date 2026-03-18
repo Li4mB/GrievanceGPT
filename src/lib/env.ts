@@ -10,8 +10,34 @@ const required = (name: string): string => {
 
 const optional = (name: string): string | undefined => process.env[name];
 
+const resolveAppUrl = (): string => {
+  const explicitAppUrl = optional("APP_URL");
+
+  if (explicitAppUrl) {
+    return explicitAppUrl;
+  }
+
+  const nextAuthUrl = optional("NEXTAUTH_URL") ?? optional("AUTH_URL");
+
+  if (nextAuthUrl) {
+    return nextAuthUrl;
+  }
+
+  const vercelUrl = optional("VERCEL_URL");
+
+  if (vercelUrl) {
+    return vercelUrl.startsWith("http")
+      ? vercelUrl
+      : `https://${vercelUrl}`;
+  }
+
+  throw new Error(
+    "Missing required environment variable: APP_URL (or NEXTAUTH_URL / VERCEL_URL).",
+  );
+};
+
 export const appEnv = {
-  appUrl: required("APP_URL"),
+  appUrl: resolveAppUrl(),
   nodeEnv: optional("NODE_ENV") ?? "development",
   logLevel: optional("LOG_LEVEL") ?? "info",
   encryptionKey: required("ENCRYPTION_KEY"),

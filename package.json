@@ -1,0 +1,37 @@
+{
+  "name": "grievance-gpt",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "worker:ticket": "tsx src/workers/ticket-processor.worker.ts",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@auth/prisma-adapter": "^2.11.1",
+    "@prisma/client": "^6.0.0",
+    "@sentry/node": "^9.0.0",
+    "bullmq": "^5.34.5",
+    "ioredis": "^5.4.1",
+    "next": "^14.2.0",
+    "next-auth": "^4.24.13",
+    "openai": "^4.76.0",
+    "pino": "^9.5.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "prisma": "^6.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

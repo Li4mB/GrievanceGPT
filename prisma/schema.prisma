@@ -1,0 +1,438 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PlanTier {
+  BETA
+  USAGE_BASED
+  ENTERPRISE
+}
+
+enum TicketSource {
+  GORGIAS
+  ZENDESK
+  EMAIL
+  SHOPIFY
+}
+
+enum TicketStatus {
+  PENDING
+  PROCESSING
+  READY_FOR_REVIEW
+  APPROVED
+  SENT
+  ESCALATED
+  REJECTED
+  FAILED
+}
+
+enum IntentLabel {
+  REFUND
+  RESHIP
+  DELAY
+  DAMAGED
+  BILLING
+  OTHER
+}
+
+enum ResolutionActionType {
+  REFUND
+  RESHIP
+  REPLACE
+  GOODWILL_CREDIT
+  ESCALATE
+  REQUEST_INFO
+  NO_ACTION
+}
+
+enum OutcomeType {
+  APPROVED
+  EDITED
+  ESCALATED
+  CHARGEBACK
+  POSITIVE_REPLY
+  NEGATIVE_REPLY
+}
+
+enum BillingStatus {
+  DRAFT
+  FINALIZED
+  PAID
+  WAIVED
+}
+
+enum IntegrationType {
+  SHOPIFY
+  GORGIAS
+  ZENDESK
+  EMAIL
+}
+
+enum IntegrationStatus {
+  PENDING
+  ACTIVE
+  ERROR
+  DISCONNECTED
+}
+
+enum MembershipRole {
+  OWNER
+  ADMIN
+  AGENT
+  VIEWER
+}
+
+enum MessageAuthorRole {
+  CUSTOMER
+  AGENT
+  AI
+  SYSTEM
+}
+
+enum ComplianceRequestTopic {
+  CUSTOMERS_DATA_REQUEST
+  CUSTOMERS_REDACT
+  SHOP_REDACT
+}
+
+enum ComplianceRequestStatus {
+  RECEIVED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model Merchant {
+  id                    String                  @id @default(cuid())
+  name                  String
+  slug                  String                  @unique
+  shopifyDomain         String?                 @unique
+  billingEmail          String?
+  planTier              PlanTier                @default(BETA)
+  stripeCustomerId      String?                 @unique
+  policyText            String                  @default("") @db.Text
+  policyJson            Json?
+  brandVoice            Json?
+  escalationThreshold   Float                   @default(0.7)
+  timezone              String                  @default("UTC")
+  currencyCode          String                  @default("USD")
+  appInstalledAt        DateTime?
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  memberships           MerchantMembership[]
+  integrations          IntegrationConnection[]
+  tickets               Ticket[]
+  ticketMessages        TicketMessage[]
+  resolutions           AIResolution[]
+  orders                Order[]
+  customers             Customer[]
+  outcomes              Outcome[]
+  usageRecords          UsageRecord[]
+  ticketEmbeddings      TicketEmbedding[]
+  complianceRequests    ComplianceRequest[]
+
+  @@index([planTier, createdAt])
+}
+
+model User {
+  id             String               @id @default(cuid())
+  email          String               @unique
+  name           String?
+  image          String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  accounts       Account[]
+  sessions       Session[]
+  memberships    MerchantMembership[]
+  approvals      AIResolution[]       @relation("AIResolutionApprovedBy")
+
+  @@index([createdAt])
+}
+
+model MerchantMembership {
+  id         String         @id @default(cuid())
+  merchantId String
+  userId     String
+  role       MembershipRole @default(AGENT)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  merchant   Merchant       @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([merchantId, userId])
+  @@index([userId, role])
+  @@index([merchantId, role])
+}
+
+model IntegrationConnection {
+  id                   String            @id @default(cuid())
+  merchantId           String
+  type                 IntegrationType
+  status               IntegrationStatus @default(PENDING)
+  externalAccountId    String?
+  accessTokenEncrypted String?
+  refreshTokenEncrypted String?
+  apiKeyEncrypted      String?
+  apiSecretEncrypted   String?
+  scopes               String[]
+  metadata             Json?
+  lastSyncedAt         DateTime?
+  installedAt          DateTime?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  merchant             Merchant          @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@unique([merchantId, type])
+  @@index([type, status])
+}
+
+model Ticket {
+  id                 String        @id @default(cuid())
+  merchantId         String
+  helpdeskTicketId   String
+  source             TicketSource
+  subject            String?
+  customerEmail      String?
+  customerName       String?
+  orderId            String?
+  status             TicketStatus  @default(PENDING)
+  ticketText         String?       @db.Text
+  summary            String?       @db.Text
+  priority           String?
+  latestMessageAt    DateTime?
+  processingStartedAt DateTime?
+  readyForReviewAt   DateTime?
+  approvedAt         DateTime?
+  sentAt             DateTime?
+  failedAt           DateTime?
+  failureReason      String?       @db.Text
+  metadata           Json?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  merchant           Merchant      @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  order              Order?        @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  messages           TicketMessage[]
+  resolution         AIResolution?
+  outcomes           Outcome[]
+  embedding          TicketEmbedding?
+
+  @@unique([merchantId, source, helpdeskTicketId])
+  @@index([merchantId, status, createdAt])
+  @@index([merchantId, customerEmail])
+  @@index([merchantId, orderId])
+}
+
+model TicketMessage {
+  id                String            @id @default(cuid())
+  merchantId        String
+  ticketId          String
+  externalMessageId String?
+  role              MessageAuthorRole
+  authorName        String?
+  authorEmail       String?
+  body              String            @db.Text
+  metadata          Json?
+  createdAt         DateTime
+  insertedAt        DateTime          @default(now())
+  merchant          Merchant          @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  ticket            Ticket            @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@unique([ticketId, externalMessageId])
+  @@index([merchantId, createdAt])
+  @@index([ticketId, createdAt])
+}
+
+model AIResolution {
+  id                       String               @id @default(cuid())
+  merchantId               String
+  ticketId                 String               @unique
+  intentLabel              IntentLabel
+  confidenceScore          Float
+  responseDraft            String               @db.Text
+  recommendedAction        ResolutionActionType
+  recommendedActionPayload Json?
+  reasoning                String               @db.Text
+  modelUsed                String
+  fallbackModelUsed        String?
+  promptVersion            String               @default("v1")
+  inputTokens              Int?
+  outputTokens             Int?
+  latencyMs                Int?
+  edited                   Boolean              @default(false)
+  approvedByUserId         String?
+  approvedAt               DateTime?
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
+  merchant                 Merchant             @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  ticket                   Ticket               @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  approvedBy               User?                @relation("AIResolutionApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([merchantId, intentLabel, createdAt])
+  @@index([merchantId, approvedAt])
+}
+
+model Order {
+  id                String      @id @default(cuid())
+  merchantId        String
+  customerId        String?
+  shopifyOrderId    String
+  orderNumber       String?
+  email             String?
+  currencyCode      String      @default("USD")
+  totalPrice        Decimal     @db.Decimal(12, 2)
+  subtotalPrice     Decimal?    @db.Decimal(12, 2)
+  totalRefunded     Decimal?    @db.Decimal(12, 2)
+  fulfillmentStatus String?
+  financialStatus   String?
+  status            String?
+  lineItemsJson     Json
+  shippingAddressJson Json?
+  billingAddressJson Json?
+  rawPayload        Json?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  merchant          Merchant    @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  customer          Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  tickets           Ticket[]
+
+  @@unique([merchantId, shopifyOrderId])
+  @@index([merchantId, customerId, createdAt])
+  @@index([merchantId, orderNumber])
+  @@index([merchantId, email])
+}
+
+model Customer {
+  id                String      @id @default(cuid())
+  merchantId        String
+  shopifyCustomerId String?
+  email             String?
+  firstName         String?
+  lastName          String?
+  phone             String?
+  orderCount        Int         @default(0)
+  totalSpent        Decimal     @default(0) @db.Decimal(12, 2)
+  defaultAddressJson Json?
+  metadata          Json?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  merchant          Merchant    @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  orders            Order[]
+
+  @@unique([merchantId, shopifyCustomerId])
+  @@index([merchantId, email])
+  @@index([merchantId, createdAt])
+}
+
+model Outcome {
+  id          String      @id @default(cuid())
+  merchantId  String
+  ticketId    String
+  outcomeType OutcomeType
+  metadata    Json?
+  recordedAt  DateTime    @default(now())
+  merchant    Merchant    @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  ticket      Ticket      @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([merchantId, outcomeType, recordedAt])
+  @@index([ticketId, recordedAt])
+}
+
+model UsageRecord {
+  id                 String        @id @default(cuid())
+  merchantId         String
+  billingPeriodStart DateTime
+  billingPeriodEnd   DateTime
+  planTier           PlanTier
+  ticketsProcessed   Int           @default(0)
+  amountDueCents     Int           @default(0)
+  status             BillingStatus @default(DRAFT)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  merchant           Merchant      @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@unique([merchantId, billingPeriodStart, billingPeriodEnd])
+  @@index([merchantId, status, billingPeriodStart])
+}
+
+model TicketEmbedding {
+  id         String                    @id @default(cuid())
+  merchantId String
+  ticketId   String                    @unique
+  content    String                    @db.Text
+  embedding  Unsupported("vector(1536)")
+  createdAt  DateTime                  @default(now())
+  updatedAt  DateTime                  @updatedAt
+  merchant   Merchant                  @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  ticket     Ticket                    @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([merchantId, createdAt])
+}
+
+model Account {
+  id                 String  @id @default(cuid())
+  userId             String
+  type               String
+  provider           String
+  providerAccountId  String
+  refresh_token      String? @db.Text
+  access_token       String? @db.Text
+  expires_at         Int?
+  token_type         String?
+  scope              String?
+  id_token           String? @db.Text
+  session_state      String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model ComplianceRequest {
+  id                 String                  @id @default(cuid())
+  merchantId         String?
+  shopifyDomain      String
+  topic              ComplianceRequestTopic
+  status             ComplianceRequestStatus @default(RECEIVED)
+  shopifyShopId      String?
+  shopifyCustomerId  String?
+  shopifyDataRequestId String?
+  payload            Json
+  resultJson         Json?
+  failureReason      String?                 @db.Text
+  receivedAt         DateTime                @default(now())
+  processedAt        DateTime?
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  merchant           Merchant?               @relation(fields: [merchantId], references: [id], onDelete: SetNull)
+
+  @@index([shopifyDomain, topic, receivedAt])
+  @@index([merchantId, receivedAt])
+  @@index([topic, status, receivedAt])
+}

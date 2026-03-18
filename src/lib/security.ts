@@ -21,7 +21,15 @@ const decodeEncryptionKey = (value: string): Buffer => {
   );
 };
 
-const encryptionKey = decodeEncryptionKey(appEnv.encryptionKey);
+let encryptionKey: Buffer | null = null;
+
+const getEncryptionKey = (): Buffer => {
+  if (!encryptionKey) {
+    encryptionKey = decodeEncryptionKey(appEnv.encryptionKey);
+  }
+
+  return encryptionKey;
+};
 
 export const generateStateToken = (): string =>
   crypto.randomBytes(32).toString("hex");
@@ -30,7 +38,7 @@ export const encryptString = (plaintext: string): string => {
   const iv = crypto.randomBytes(IV_LENGTH_BYTES);
   const cipher = crypto.createCipheriv(
     ENCRYPTION_ALGORITHM,
-    encryptionKey,
+    getEncryptionKey(),
     iv,
   );
 
@@ -52,7 +60,7 @@ export const decryptString = (payload: string): string => {
 
   const decipher = crypto.createDecipheriv(
     ENCRYPTION_ALGORITHM,
-    encryptionKey,
+    getEncryptionKey(),
     Buffer.from(ivBase64, "base64"),
   );
   decipher.setAuthTag(Buffer.from(authTagBase64, "base64"));

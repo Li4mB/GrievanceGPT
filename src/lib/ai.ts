@@ -133,13 +133,32 @@ interface ResolutionDraft {
   confidenceScore: number;
 }
 
-const openai = new OpenAI({
-  apiKey: aiEnv.openAiApiKey,
-});
+let openai: OpenAI | null = null;
+let anthropic: Anthropic | null = null;
 
-const anthropic = aiEnv.anthropicApiKey
-  ? new Anthropic({ apiKey: aiEnv.anthropicApiKey })
-  : null;
+const getOpenAi = (): OpenAI => {
+  if (!openai) {
+    openai = new OpenAI({
+      apiKey: aiEnv.openAiApiKey,
+    });
+  }
+
+  return openai;
+};
+
+const getAnthropic = (): Anthropic | null => {
+  if (!aiEnv.anthropicApiKey) {
+    return null;
+  }
+
+  if (!anthropic) {
+    anthropic = new Anthropic({
+      apiKey: aiEnv.anthropicApiKey,
+    });
+  }
+
+  return anthropic;
+};
 
 const INTENT_VALUES = Object.values(IntentLabel);
 const ACTION_VALUES = Object.values(ResolutionActionType);
@@ -247,7 +266,7 @@ const extractTextContent = (content: unknown): string => {
 };
 
 export const embedText = async (input: string): Promise<number[]> => {
-  const response = await openai.embeddings.create({
+  const response = await getOpenAi().embeddings.create({
     model: aiEnv.openAiEmbeddingModel,
     input,
   });
@@ -280,7 +299,7 @@ export const extractOrderReference = async (
     };
   }
 
-  const completion = await openai.chat.completions.create({
+  const completion = await getOpenAi().chat.completions.create({
     model: aiEnv.openAiTicketModel,
     temperature: 0,
     response_format: { type: "json_object" },
@@ -332,7 +351,7 @@ export const classifyIntent = async ({
   ticketText: string;
   thread: TicketThreadMessage[];
 }): Promise<IntentClassification> => {
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAi().chat.completions.create({
     model: aiEnv.openAiTicketModel,
     temperature: 0,
     response_format: { type: "json_object" },
@@ -383,7 +402,7 @@ const draftResolutionWithOpenAi = async ({
   inputTokens: number | null;
   outputTokens: number | null;
 }> => {
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAi().chat.completions.create({
     model: aiEnv.openAiTicketModel,
     temperature: 0.2,
     response_format: { type: "json_object" },
@@ -445,11 +464,13 @@ const draftResolutionWithAnthropic = async ({
   inputTokens: number | null;
   outputTokens: number | null;
 }> => {
-  if (!anthropic) {
+  const anthropicClient = getAnthropic();
+
+  if (!anthropicClient) {
     throw new Error("Anthropic fallback is not configured.");
   }
 
-  const response = await anthropic.messages.create({
+  const response = await anthropicClient.messages.create({
     model: aiEnv.anthropicFallbackModel,
     max_tokens: 1_600,
     temperature: 0.2,
@@ -666,7 +687,7 @@ export const runResolutionAgent = async (
 
   try {
     for (let iteration = 0; iteration < 6; iteration += 1) {
-      const response = await openai.chat.completions.create({
+      const response = await getOpenAi().chat.completions.create({
         model: aiEnv.openAiTicketModel,
         temperature: 0.1,
         tools: buildAgentTools(),
@@ -743,7 +764,7 @@ export const runResolutionAgent = async (
 
     throw new Error("OpenAI agent loop exceeded maximum iterations.");
   } catch (error) {
-    if (!isRetryableOpenAiError(error) || !anthropic) {
+    if (!isRetryableOpenAiError(error) || !getAnthropic()) {
       throw error;
     }
 

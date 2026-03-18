@@ -2,9 +2,17 @@ import OpenAI from "openai";
 
 import { aiEnv } from "./env";
 
-const openai = new OpenAI({
-  apiKey: aiEnv.openAiApiKey,
-});
+let openai: OpenAI | null = null;
+
+const getOpenAi = (): OpenAI => {
+  if (!openai) {
+    openai = new OpenAI({
+      apiKey: aiEnv.openAiApiKey,
+    });
+  }
+
+  return openai;
+};
 
 export interface ParsedMerchantPolicy {
   version: "v1";
@@ -45,7 +53,7 @@ const extractJsonObject = (value: string): string => {
 export const parseMerchantPolicy = async (
   policyText: string,
 ): Promise<ParsedMerchantPolicy> => {
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAi().chat.completions.create({
     model: aiEnv.openAiTicketModel,
     temperature: 0,
     response_format: { type: "json_object" },

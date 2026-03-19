@@ -26,6 +26,37 @@ export const dynamic = "force-dynamic";
 const SHOPIFY_OAUTH_STATE_COOKIE = "__grievance_shopify_oauth_state";
 const SHOPIFY_OAUTH_SHOP_COOKIE = "__grievance_shopify_oauth_shop";
 
+const classifyInstallationFailure = (error: unknown): string => {
+  const message =
+    error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+
+  if (message.includes("token exchange")) {
+    return "token_exchange_failed";
+  }
+
+  if (
+    message.includes("shopify graphql request") ||
+    message.includes("returned no data")
+  ) {
+    return "shop_info_fetch_failed";
+  }
+
+  if (message.includes("encryption_key")) {
+    return "encryption_key_invalid";
+  }
+
+  if (
+    message.includes("prisma") ||
+    message.includes("database") ||
+    message.includes("p1000") ||
+    message.includes("prepared statement")
+  ) {
+    return "database_connection_failed";
+  }
+
+  return "installation_failed";
+};
+
 const buildShopifyIntegrationMetadata = ({
   shopDetails,
   extra,
@@ -297,17 +328,29 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     return response;
   } catch (error) {
+    const errorRef = crypto.randomUUID().slice(0, 8);
+    const redirectUrl = new URL("/onboarding", request.nextUrl.origin);
+    redirectUrl.searchParams.set("installation", "failed");
+    redirectUrl.searchParams.set("issue", classifyInstallationFailure(error));
+    redirectUrl.searchParams.set("errorRef", errorRef);
+
+    if (shop) {
+      redirectUrl.searchParams.set("shop", shop);
+    }
+
     logger.error(
       {
         error,
+        errorRef,
         shopifyDomain: shop,
       },
       "Shopify installation failed",
     );
 
-    return NextResponse.json(
-      { error: "Failed to complete Shopify installation." },
-      { status: 500 },
-    );
+    const response = NextResponse.redirect(redirectUrl);
+    response.cookies.delete(SHOPIFY_OAUTH_STATE_COOKIE);
+    response.cookies.delete(SHOPIFY_OAUTH_SHOP_COOKIE);
+
+    return response;
   }
 }

@@ -11,7 +11,9 @@
     "typecheck": "tsc --noEmit",
     "worker:ticket": "tsx src/workers/ticket-processor.worker.ts",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev"
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:push": "prisma db push",
+    "prisma:push:accept": "prisma db push --accept-data-loss"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

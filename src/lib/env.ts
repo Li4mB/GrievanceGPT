@@ -67,7 +67,7 @@ export const shopifyEnv = {
   get scopes(): string {
     return (
       optional("SHOPIFY_APP_SCOPES") ??
-      "read_orders,read_all_orders,read_customers,read_customer_email,read_customer_name,read_customer_phone,read_customer_address,write_fulfillments"
+      "read_orders,read_customers,write_fulfillments"
     );
   },
   get apiVersion(): string {

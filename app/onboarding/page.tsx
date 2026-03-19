@@ -4,31 +4,51 @@ import { prisma } from "../../src/lib/prisma";
 
 interface OnboardingPageProps {
   searchParams: {
+    errorRef?: string;
     installation?: string;
     issue?: string;
     shop?: string;
   };
 }
 
+const INSTALLATION_ISSUE_COPY: Record<string, string> = {
+  database_connection_failed:
+    "The Shopify approval succeeded, but GrievanceGPT could not write the merchant record to the database.",
+  encryption_key_invalid:
+    "The Shopify approval succeeded, but the server could not encrypt the Shopify token with the configured encryption key.",
+  shop_info_fetch_failed:
+    "The Shopify approval succeeded, but GrievanceGPT could not fetch the store profile from Shopify.",
+  token_exchange_failed:
+    "The Shopify callback reached GrievanceGPT, but exchanging the temporary Shopify code for an access token failed.",
+  installation_failed:
+    "The Shopify callback reached GrievanceGPT, but the installation could not be finalized.",
+  shopify_webhooks:
+    "The Shopify token and merchant record were saved, but webhook provisioning still needs attention.",
+};
+
 export default async function OnboardingPage({
   searchParams,
 }: OnboardingPageProps) {
-  const merchant = searchParams.shop
-    ? await prisma.merchant.findUnique({
-        where: {
-          shopifyDomain: searchParams.shop,
-        },
-        select: {
-          id: true,
-          name: true,
-          billingEmail: true,
-          shopifyDomain: true,
-        },
-      })
-    : null;
-
   const installationStatus = searchParams.installation ?? "success";
+  const installationFailed = installationStatus === "failed";
   const installationPartial = installationStatus === "partial";
+  const merchant =
+    searchParams.shop && !installationFailed
+      ? await prisma.merchant.findUnique({
+          where: {
+            shopifyDomain: searchParams.shop,
+          },
+          select: {
+            id: true,
+            name: true,
+            billingEmail: true,
+            shopifyDomain: true,
+          },
+        })
+      : null;
+  const issueCopy =
+    INSTALLATION_ISSUE_COPY[searchParams.issue ?? ""] ??
+    INSTALLATION_ISSUE_COPY.installation_failed;
 
   return (
     <main
@@ -72,7 +92,9 @@ export default async function OnboardingPage({
             color: "#0f172a",
           }}
         >
-          {installationPartial
+          {installationFailed
+            ? "Shopify installation needs one fix."
+            : installationPartial
             ? "Shopify installed with follow-up work required."
             : "Shopify installation completed."}
         </h1>
@@ -83,10 +105,11 @@ export default async function OnboardingPage({
             lineHeight: 1.7,
           }}
         >
-          {merchant?.name ?? "Your store"} is now connected to GrievanceGPT.
-          The store owner can sign in with{" "}
-          {merchant?.billingEmail ?? "the Shopify billing email"} to finish helpdesk
-          setup and policy configuration.
+          {installationFailed
+            ? issueCopy
+            : `${merchant?.name ?? "Your store"} is now connected to GrievanceGPT. The store owner can sign in with ${
+                merchant?.billingEmail ?? "the Shopify billing email"
+              } to finish helpdesk setup and policy configuration.`}
         </p>
 
         {installationPartial ? (
@@ -105,6 +128,21 @@ export default async function OnboardingPage({
           </div>
         ) : null}
 
+        {installationFailed ? (
+          <div
+            style={{
+              marginTop: "1.25rem",
+              padding: "1rem 1.1rem",
+              borderRadius: "1rem",
+              background: "#fef2f2",
+              color: "#991b1b",
+            }}
+          >
+            Failure code: {searchParams.issue ?? "installation_failed"}
+            {searchParams.errorRef ? ` · Ref ${searchParams.errorRef}` : ""}
+          </div>
+        ) : null}
+
         <div
           style={{
             marginTop: "1.5rem",
@@ -113,10 +151,20 @@ export default async function OnboardingPage({
             color: "#0f172a",
           }}
         >
-          <div>1. Sign in with the Shopify owner email.</div>
-          <div>2. Connect Gorgias from Settings so tickets can flow in.</div>
-          <div>3. Write the plain-English resolution policy for the merchant.</div>
-          <div>4. Run a test ticket and confirm the supervisor queue renders.</div>
+          {installationFailed ? (
+            <>
+              <div>1. Fix the environment or integration issue shown above.</div>
+              <div>2. Retry the Shopify install link.</div>
+              <div>3. Return here and continue onboarding after install succeeds.</div>
+            </>
+          ) : (
+            <>
+              <div>1. Sign in with the Shopify owner email.</div>
+              <div>2. Connect Gorgias from Settings so tickets can flow in.</div>
+              <div>3. Write the plain-English resolution policy for the merchant.</div>
+              <div>4. Run a test ticket and confirm the supervisor queue renders.</div>
+            </>
+          )}
         </div>
 
         <div

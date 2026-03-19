@@ -1,6 +1,5 @@
 import crypto from "node:crypto";
 
-import type { Prisma } from "@prisma/client";
 import {
   IntegrationStatus,
   IntegrationType,
@@ -71,15 +70,12 @@ const buildShopifyIntegrationMetadata = ({
   ...extra,
 });
 
-const generateUniqueMerchantSlug = async (
-  tx: Prisma.TransactionClient,
-  proposedName: string,
-): Promise<string> => {
+const generateUniqueMerchantSlug = async (proposedName: string): Promise<string> => {
   const baseSlug = slugify(proposedName) || `merchant-${crypto.randomUUID().slice(0, 8)}`;
   let candidate = baseSlug;
   let suffix = 1;
 
-  while (await tx.merchant.findUnique({ where: { slug: candidate } })) {
+  while (await prisma.merchant.findUnique({ where: { slug: candidate } })) {
     candidate = `${baseSlug}-${suffix}`;
     suffix += 1;
   }
@@ -130,111 +126,97 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       shop,
       accessToken: tokenResponse.access_token,
     });
+    const merchant = await prisma.merchant.upsert({
+      where: { shopifyDomain: shop },
+      update: {
+        name: shopDetails.name,
+        shopifyDomain: shop,
+        billingEmail: shopDetails.email,
+        timezone: shopDetails.iana_timezone || "UTC",
+        currencyCode: shopDetails.currency || "USD",
+        appInstalledAt: new Date(),
+      },
+      create: {
+        name: shopDetails.name,
+        slug: await generateUniqueMerchantSlug(shopDetails.name),
+        shopifyDomain: shop,
+        billingEmail: shopDetails.email,
+        planTier: PlanTier.BETA,
+        policyText: "",
+        timezone: shopDetails.iana_timezone || "UTC",
+        currencyCode: shopDetails.currency || "USD",
+        appInstalledAt: new Date(),
+      },
+    });
 
-    const merchant = await prisma.$transaction(async (tx) => {
-      const existingMerchant = await tx.merchant.findUnique({
-        where: { shopifyDomain: shop },
-      });
-
-      const merchant =
-        existingMerchant ??
-        (await tx.merchant.create({
-          data: {
-            name: shopDetails.name,
-            slug: await generateUniqueMerchantSlug(tx, shopDetails.name),
-            shopifyDomain: shop,
-            billingEmail: shopDetails.email,
-            planTier: PlanTier.BETA,
-            policyText: "",
-            timezone: shopDetails.iana_timezone || "UTC",
-            currencyCode: shopDetails.currency || "USD",
-            appInstalledAt: new Date(),
-          },
-        }));
-
-      const updatedMerchant = await tx.merchant.update({
-        where: { id: merchant.id },
-        data: {
+    if (shopDetails.email) {
+      const ownerEmail = shopDetails.email.trim().toLowerCase();
+      const ownerUser = await prisma.user.upsert({
+        where: {
+          email: ownerEmail,
+        },
+        update: {
           name: shopDetails.name,
-          shopifyDomain: shop,
-          billingEmail: shopDetails.email,
-          timezone: shopDetails.iana_timezone || "UTC",
-          currencyCode: shopDetails.currency || "USD",
-          appInstalledAt: new Date(),
+        },
+        create: {
+          email: ownerEmail,
+          name: shopDetails.name,
         },
       });
 
-      if (shopDetails.email) {
-        const ownerEmail = shopDetails.email.trim().toLowerCase();
-        const ownerUser = await tx.user.upsert({
-          where: {
-            email: ownerEmail,
-          },
-          update: {
-            name: shopDetails.name,
-          },
-          create: {
-            email: ownerEmail,
-            name: shopDetails.name,
-          },
-        });
-
-        await tx.merchantMembership.upsert({
-          where: {
-            merchantId_userId: {
-              merchantId: merchant.id,
-              userId: ownerUser.id,
-            },
-          },
-          update: {
-            role: MembershipRole.OWNER,
-          },
-          create: {
+      await prisma.merchantMembership.upsert({
+        where: {
+          merchantId_userId: {
             merchantId: merchant.id,
             userId: ownerUser.id,
-            role: MembershipRole.OWNER,
-          },
-        });
-      }
-
-      await tx.integrationConnection.upsert({
-        where: {
-          merchantId_type: {
-            merchantId: merchant.id,
-            type: IntegrationType.SHOPIFY,
           },
         },
         update: {
-          status: IntegrationStatus.PENDING,
-          externalAccountId: shop,
-          accessTokenEncrypted,
-          scopes: tokenResponse.scope
-            .split(",")
-            .map((scope) => scope.trim())
-            .filter(Boolean),
-          metadata: buildShopifyIntegrationMetadata({
-            shopDetails,
-          }),
-          installedAt: new Date(),
+          role: MembershipRole.OWNER,
         },
         create: {
           merchantId: merchant.id,
-          type: IntegrationType.SHOPIFY,
-          status: IntegrationStatus.PENDING,
-          externalAccountId: shop,
-          accessTokenEncrypted,
-          scopes: tokenResponse.scope
-            .split(",")
-            .map((scope) => scope.trim())
-            .filter(Boolean),
-          metadata: buildShopifyIntegrationMetadata({
-            shopDetails,
-          }),
-          installedAt: new Date(),
+          userId: ownerUser.id,
+          role: MembershipRole.OWNER,
         },
       });
+    }
 
-      return updatedMerchant;
+    await prisma.integrationConnection.upsert({
+      where: {
+        merchantId_type: {
+          merchantId: merchant.id,
+          type: IntegrationType.SHOPIFY,
+        },
+      },
+      update: {
+        status: IntegrationStatus.PENDING,
+        externalAccountId: shop,
+        accessTokenEncrypted,
+        scopes: tokenResponse.scope
+          .split(",")
+          .map((scope) => scope.trim())
+          .filter(Boolean),
+        metadata: buildShopifyIntegrationMetadata({
+          shopDetails,
+        }),
+        installedAt: new Date(),
+      },
+      create: {
+        merchantId: merchant.id,
+        type: IntegrationType.SHOPIFY,
+        status: IntegrationStatus.PENDING,
+        externalAccountId: shop,
+        accessTokenEncrypted,
+        scopes: tokenResponse.scope
+          .split(",")
+          .map((scope) => scope.trim())
+          .filter(Boolean),
+        metadata: buildShopifyIntegrationMetadata({
+          shopDetails,
+        }),
+        installedAt: new Date(),
+      },
     });
 
     let installationStatus: "success" | "partial" = "success";

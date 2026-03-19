@@ -13,16 +13,31 @@ const normalizeDatabaseUrl = (name: "DATABASE_URL" | "DIRECT_URL"): void => {
   }
 
   const trimmed = value.trim();
-
-  if (
+  const normalized =
     (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
     (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
-    process.env[name] = trimmed.slice(1, -1).trim();
-    return;
-  }
+      ? trimmed.slice(1, -1).trim()
+      : trimmed;
 
-  process.env[name] = trimmed;
+  try {
+    const parsed = new URL(normalized);
+    const isSupabaseTransactionPooler =
+      parsed.hostname.endsWith("pooler.supabase.com") && parsed.port === "6543";
+
+    if (isSupabaseTransactionPooler) {
+      if (!parsed.searchParams.has("pgbouncer")) {
+        parsed.searchParams.set("pgbouncer", "true");
+      }
+
+      if (!parsed.searchParams.has("connection_limit")) {
+        parsed.searchParams.set("connection_limit", "1");
+      }
+    }
+
+    process.env[name] = parsed.toString();
+  } catch {
+    process.env[name] = normalized;
+  }
 };
 
 normalizeDatabaseUrl("DATABASE_URL");

@@ -1,5 +1,22 @@
+const normalizeEnvValue = (value: string | undefined): string | undefined => {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1).trim();
+  }
+
+  return trimmed;
+};
+
 const required = (name: string): string => {
-  const value = process.env[name];
+  const value = normalizeEnvValue(process.env[name]);
 
   if (!value) {
     throw new Error(`Missing required environment variable: ${name}`);
@@ -8,7 +25,8 @@ const required = (name: string): string => {
   return value;
 };
 
-const optional = (name: string): string | undefined => process.env[name];
+const optional = (name: string): string | undefined =>
+  normalizeEnvValue(process.env[name]);
 
 const resolveAppUrl = (): string => {
   const explicitAppUrl = optional("APP_URL");

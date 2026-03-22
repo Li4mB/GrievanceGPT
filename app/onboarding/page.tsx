@@ -32,20 +32,25 @@ export default async function OnboardingPage({
   const installationStatus = searchParams.installation ?? "success";
   const installationFailed = installationStatus === "failed";
   const installationPartial = installationStatus === "partial";
-  const merchant =
-    searchParams.shop && !installationFailed
-      ? await prisma.merchant.findUnique({
-          where: {
-            shopifyDomain: searchParams.shop,
-          },
-          select: {
-            id: true,
-            name: true,
-            billingEmail: true,
-            shopifyDomain: true,
-          },
-        })
-      : null;
+  let merchant = null;
+
+  if (searchParams.shop && !installationFailed) {
+    try {
+      merchant = await prisma.merchant.findUnique({
+        where: {
+          shopifyDomain: searchParams.shop,
+        },
+        select: {
+          id: true,
+          name: true,
+          billingEmail: true,
+          shopifyDomain: true,
+        },
+      });
+    } catch {
+      merchant = null;
+    }
+  }
   const issueCopy =
     INSTALLATION_ISSUE_COPY[searchParams.issue ?? ""] ??
     INSTALLATION_ISSUE_COPY.installation_failed;

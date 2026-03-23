@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 
 import { aiEnv } from "./env";
+import { logger } from "./logger";
 
 let openai: OpenAI | null = null;
 
@@ -50,36 +51,69 @@ const extractJsonObject = (value: string): string => {
   throw new Error("Policy parser did not return a JSON object.");
 };
 
+const buildFallbackPolicy = (policyText: string): ParsedMerchantPolicy => {
+  const normalizedLines = policyText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  return {
+    version: "v1",
+    intents: [],
+    escalationRules: [],
+    goodwillRules: [],
+    prohibitedActions: [],
+    brandVoice: {
+      tone: "merchant-defined",
+      styleNotes: [],
+      forbiddenPhrases: [],
+    },
+    operationalNotes:
+      normalizedLines.length > 0 ? normalizedLines : [policyText.trim()],
+  };
+};
+
 export const parseMerchantPolicy = async (
   policyText: string,
 ): Promise<ParsedMerchantPolicy> => {
-  const response = await getOpenAi().chat.completions.create({
-    model: aiEnv.openAiTicketModel,
-    temperature: 0,
-    response_format: { type: "json_object" },
-    messages: [
-      {
-        role: "system",
-        content: [
-          "Convert merchant support policy text into structured JSON for an AI complaint resolution engine.",
-          "Preserve meaning exactly.",
-          "Do not invent thresholds or actions.",
-          "Return JSON with keys: version, intents, escalationRules, goodwillRules, prohibitedActions, brandVoice, operationalNotes.",
-          "Each intent item must include intent, conditions, defaultAction, customerMessageGuidance.",
-        ].join(" "),
-      },
-      {
-        role: "user",
-        content: policyText,
-      },
-    ],
-  });
+  try {
+    const response = await getOpenAi().chat.completions.create({
+      model: aiEnv.openAiTicketModel,
+      temperature: 0,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: [
+            "Convert merchant support policy text into structured JSON for an AI complaint resolution engine.",
+            "Preserve meaning exactly.",
+            "Do not invent thresholds or actions.",
+            "Return JSON with keys: version, intents, escalationRules, goodwillRules, prohibitedActions, brandVoice, operationalNotes.",
+            "Each intent item must include intent, conditions, defaultAction, customerMessageGuidance.",
+          ].join(" "),
+        },
+        {
+          role: "user",
+          content: policyText,
+        },
+      ],
+    });
 
-  const content = response.choices[0]?.message.content;
+    const content = response.choices[0]?.message.content;
 
-  if (!content) {
-    throw new Error("Policy parser returned an empty response.");
+    if (!content) {
+      throw new Error("Policy parser returned an empty response.");
+    }
+
+    return JSON.parse(extractJsonObject(content)) as ParsedMerchantPolicy;
+  } catch (error) {
+    logger.warn(
+      {
+        error,
+      },
+      "Policy parser failed, using fallback policy structure",
+    );
+
+    return buildFallbackPolicy(policyText);
   }
-
-  return JSON.parse(extractJsonObject(content)) as ParsedMerchantPolicy;
 };

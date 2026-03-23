@@ -36,6 +36,8 @@ interface GorgiasMetadata {
   apiEmail: string;
 }
 
+const INTERNAL_TEST_TICKET_KEY = "internalTestTicket";
+
 const asRecord = (value: unknown): Record<string, unknown> =>
   typeof value === "object" && value !== null
     ? (value as Record<string, unknown>)
@@ -57,6 +59,9 @@ const coerceDate = (value: unknown): Date => {
 
   return new Date();
 };
+
+const isInternalTestTicket = (metadata: unknown): boolean =>
+  asRecord(metadata)[INTERNAL_TEST_TICKET_KEY] === true;
 
 const resolveMessageRole = (message: Record<string, unknown>): MessageAuthorRole => {
   const sender = asRecord(message.sender);
@@ -237,6 +242,74 @@ const fetchGorgiasThread = async ({
   };
 };
 
+const fetchInternalTestThread = async ({
+  merchantId,
+  source,
+  helpdeskTicketId,
+}: {
+  merchantId: string;
+  source: TicketSource;
+  helpdeskTicketId: string;
+}): Promise<HelpdeskThread | null> => {
+  const ticket = await prisma.ticket.findUnique({
+    where: {
+      merchantId_source_helpdeskTicketId: {
+        merchantId,
+        source,
+        helpdeskTicketId,
+      },
+    },
+    select: {
+      subject: true,
+      customerEmail: true,
+      customerName: true,
+      metadata: true,
+      messages: {
+        select: {
+          externalMessageId: true,
+          role: true,
+          authorName: true,
+          authorEmail: true,
+          body: true,
+          metadata: true,
+          createdAt: true,
+        },
+        orderBy: {
+          createdAt: "asc",
+        },
+      },
+    },
+  });
+
+  if (!ticket || !isInternalTestTicket(ticket.metadata)) {
+    return null;
+  }
+
+  return {
+    subject: ticket.subject,
+    customerEmail: ticket.customerEmail,
+    customerName: ticket.customerName,
+    messages: ticket.messages.map((message) => ({
+      externalMessageId: message.externalMessageId,
+      role: message.role,
+      authorName: message.authorName,
+      authorEmail: message.authorEmail,
+      body: message.body,
+      metadata: asRecord(message.metadata),
+      createdAt: message.createdAt,
+    })),
+    rawPayload: {
+      internalTestTicket: true,
+      source: "internal_test",
+      ticket: {
+        subject: ticket.subject,
+        customerEmail: ticket.customerEmail,
+        customerName: ticket.customerName,
+      },
+    },
+  };
+};
+
 const sendGorgiasReply = async ({
   merchantId,
   ticketId,
@@ -265,6 +338,37 @@ const sendGorgiasReply = async ({
   };
 };
 
+const sendInternalTestReply = async ({
+  merchantId,
+  source,
+  helpdeskTicketId,
+  message,
+}: {
+  merchantId: string;
+  source: TicketSource;
+  helpdeskTicketId: string;
+  message: string;
+}): Promise<HelpdeskReplyResult | null> => {
+  const thread = await fetchInternalTestThread({
+    merchantId,
+    source,
+    helpdeskTicketId,
+  });
+
+  if (!thread) {
+    return null;
+  }
+
+  return {
+    externalMessageId: `internal-reply-${Date.now()}`,
+    rawPayload: {
+      internalTestTicket: true,
+      delivered: true,
+      preview: message,
+    },
+  };
+};
+
 export const fetchHelpdeskThread = async ({
   merchantId,
   source,
@@ -283,9 +387,21 @@ export const fetchHelpdeskThread = async ({
     case TicketSource.GORGIAS:
       return fetchGorgiasThread({ merchantId, ticketId: helpdeskTicketId });
     case TicketSource.ZENDESK:
-    case TicketSource.EMAIL:
     case TicketSource.SHOPIFY:
       throw new Error(`Ticket source ${source} is not enabled in Phase 1.`);
+    case TicketSource.EMAIL: {
+      const internalThread = await fetchInternalTestThread({
+        merchantId,
+        source,
+        helpdeskTicketId,
+      });
+
+      if (internalThread) {
+        return internalThread;
+      }
+
+      throw new Error(`Ticket source ${source} is not enabled in Phase 1.`);
+    }
     default:
       throw new Error(`Unsupported ticket source: ${String(source)}`);
   }
@@ -315,9 +431,22 @@ export const sendHelpdeskReply = async ({
         message,
       });
     case TicketSource.ZENDESK:
-    case TicketSource.EMAIL:
     case TicketSource.SHOPIFY:
       throw new Error(`Ticket source ${source} is not enabled in Phase 1.`);
+    case TicketSource.EMAIL: {
+      const internalReply = await sendInternalTestReply({
+        merchantId,
+        source,
+        helpdeskTicketId,
+        message,
+      });
+
+      if (internalReply) {
+        return internalReply;
+      }
+
+      throw new Error(`Ticket source ${source} is not enabled in Phase 1.`);
+    }
     default:
       throw new Error(`Unsupported ticket source: ${String(source)}`);
   }

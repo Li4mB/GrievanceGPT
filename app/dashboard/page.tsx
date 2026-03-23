@@ -392,6 +392,19 @@ export default async function DashboardPage({
                   Open settings
                 </Link>
                 <Link
+                  href={`/test-ticket?merchantId=${activeMembership.merchantId}`}
+                  style={{
+                    padding: "0.8rem 1rem",
+                    borderRadius: "0.9rem",
+                    background: "#dbeafe",
+                    color: "#0f172a",
+                    textDecoration: "none",
+                    fontWeight: 700,
+                  }}
+                >
+                  Run test ticket
+                </Link>
+                <Link
                   href={`/onboarding?shop=${activeMembership.merchant.shopifyDomain ?? ""}`}
                   style={{
                     padding: "0.8rem 1rem",

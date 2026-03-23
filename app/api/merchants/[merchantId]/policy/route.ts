@@ -54,7 +54,18 @@ export async function GET(
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
 
-    throw error;
+    logger.error(
+      {
+        error,
+        merchantId: params.merchantId,
+      },
+      "Failed to fetch merchant policy",
+    );
+
+    return NextResponse.json(
+      { error: "Failed to fetch policy." },
+      { status: 500 },
+    );
   }
 }
 
@@ -121,6 +132,20 @@ export async function PUT(
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
 
-    throw error;
+    logger.error(
+      {
+        error,
+        merchantId: params.merchantId,
+      },
+      "Failed to update merchant policy",
+    );
+
+    const message =
+      error instanceof Error &&
+      error.message.includes("OPENAI_API_KEY")
+        ? "Policy parser is unavailable because OPENAI_API_KEY is not configured."
+        : "Failed to save policy.";
+
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

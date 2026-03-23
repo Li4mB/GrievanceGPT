@@ -23,34 +23,51 @@ export function PolicyEditor({
   );
   const [isPending, startTransition] = useTransition();
 
+  const parseJsonSafely = (value: string): { error?: string; policyJson?: unknown } => {
+    try {
+      return JSON.parse(value) as { error?: string; policyJson?: unknown };
+    } catch {
+      return {};
+    }
+  };
+
   const savePolicy = () => {
     setMessage(null);
     setError(null);
 
     startTransition(async () => {
-      const response = await fetch(`/api/merchants/${merchantId}/policy`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          policyText,
-        }),
-      });
+      try {
+        const response = await fetch(`/api/merchants/${merchantId}/policy`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            policyText,
+          }),
+        });
 
-      const payload = (await response.json()) as {
-        error?: string;
-        policyJson?: unknown;
-      };
+        const responseText = await response.text();
+        const payload = parseJsonSafely(responseText);
 
-      if (!response.ok) {
-        setError(payload.error ?? "Failed to save policy.");
-        return;
+        if (!response.ok) {
+          setError(
+            payload.error ??
+              "Failed to save policy. Check that the policy parser is configured and try again.",
+          );
+          return;
+        }
+
+        setPolicyJsonPreview(JSON.stringify(payload.policyJson ?? {}, null, 2));
+        setMessage("Policy saved and re-parsed for the agent.");
+        router.refresh();
+      } catch (saveError) {
+        setError(
+          saveError instanceof Error
+            ? saveError.message
+            : "Failed to save policy.",
+        );
       }
-
-      setPolicyJsonPreview(JSON.stringify(payload.policyJson ?? {}, null, 2));
-      setMessage("Policy saved and re-parsed for the agent.");
-      router.refresh();
     });
   };
 
